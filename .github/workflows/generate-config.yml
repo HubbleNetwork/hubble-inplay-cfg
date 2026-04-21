@@ -1,0 +1,84 @@
+name: Generate config
+
+on:
+  workflow_dispatch:
+    inputs:
+      rot_exp:
+        description: "EID rotation period exponent (2^rot_exp seconds). Accepted: 1-15; preferred: 10-15. Blank uses CLI default (15)."
+        required: false
+        type: string
+        default: ""
+      key:
+        description: "AES-128 key as 32-char hex or base64. Blank uses CLI default (all-zeros)."
+        required: false
+        type: string
+        default: ""
+      interval:
+        description: "Advertising interval in seconds. Blank uses CLI default (2)."
+        required: false
+        type: string
+        default: ""
+      payload:
+        description: "Raw hex payload bytes (>=1 byte, even number of hex chars). Blank uses CLI default (FF)."
+        required: false
+        type: string
+        default: ""
+      output_name:
+        description: "Filename for the generated config (written under ./out/)."
+        required: false
+        type: string
+        default: "hubble-inplay.cfg"
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+    steps:
+      - name: Mask sensitive inputs
+        run: |
+          # Read key from the event payload (never via env:) so the value
+          # isn't rendered in this step's env block, then register it with
+          # the log masker. Subsequent steps that reference the input key
+          # via env: will display it as ***.
+          KEY="$(jq -r '.inputs.key // empty' "$GITHUB_EVENT_PATH")"
+          if [ -n "$KEY" ]; then
+            echo "::add-mask::$KEY"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Generate config
+        env:
+          ROT_EXP: ${{ inputs.rot_exp }}
+          KEY: ${{ inputs.key }}
+          INTERVAL: ${{ inputs.interval }}
+          PAYLOAD: ${{ inputs.payload }}
+          OUTPUT_NAME: ${{ inputs.output_name }}
+        run: |
+          OUTPUT_NAME="$(basename -- "$OUTPUT_NAME")"
+          if [ -z "$OUTPUT_NAME" ] || [ "$OUTPUT_NAME" = "." ] || [ "$OUTPUT_NAME" = ".." ]; then
+            echo "::error::invalid output_name"; exit 1
+          fi
+          mkdir -p out
+          args=(-o "out/$OUTPUT_NAME")
+          [ -n "$ROT_EXP" ]  && args+=(--rot-exp "$ROT_EXP")
+          [ -n "$KEY" ]      && args+=(--key "$KEY")
+          [ -n "$INTERVAL" ] && args+=(--interval "$INTERVAL")
+          [ -n "$PAYLOAD" ]  && args+=(--payload "$PAYLOAD")
+          python -m hubble_inplay_cfg "${args[@]}"
+          echo "ARTIFACT_PATH=out/$OUTPUT_NAME" >> "$GITHUB_ENV"
+          echo "ARTIFACT_NAME=$OUTPUT_NAME" >> "$GITHUB_ENV"
+
+      - name: Upload config artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.ARTIFACT_PATH }}
+          if-no-files-found: error

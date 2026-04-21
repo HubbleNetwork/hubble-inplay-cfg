@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+*.egg
+
+# pytest
+.pytest_cache/
+
+# Generated output files (root-level only; examples/*.cfg are reference files)
+/*.cfg
+
+# IDE
+.DS_Store
