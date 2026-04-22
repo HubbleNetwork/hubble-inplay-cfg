@@ -3,8 +3,8 @@ name: Generate config
 on:
   workflow_dispatch:
     inputs:
-      rot_exp:
-        description: "EID rotation period exponent (2^rot_exp seconds). Accepted: 1-15; preferred: 10-15. Blank uses CLI default (15)."
+      period_exponent:
+        description: "EID rotation period exponent (2^period_exponent seconds). Accepted: 1-15; preferred: 10-15. Blank uses CLI default (15)."
         required: false
         type: string
         default: ""
@@ -56,7 +56,7 @@ jobs:
 
       - name: Generate config
         env:
-          ROT_EXP: ${{ inputs.rot_exp }}
+          PERIOD_EXPONENT: ${{ inputs.period_exponent }}
           KEY: ${{ inputs.key }}
           INTERVAL: ${{ inputs.interval }}
           PAYLOAD: ${{ inputs.payload }}
@@ -68,7 +68,7 @@ jobs:
           fi
           mkdir -p out
           args=(-o "out/$OUTPUT_NAME")
-          [ -n "$ROT_EXP" ]  && args+=(--rot-exp "$ROT_EXP")
+          [ -n "$PERIOD_EXPONENT" ] && args+=(--period-exponent "$PERIOD_EXPONENT")
           [ -n "$KEY" ]      && args+=(--key "$KEY")
           [ -n "$INTERVAL" ] && args+=(--interval "$INTERVAL")
           [ -n "$PAYLOAD" ]  && args+=(--payload "$PAYLOAD")

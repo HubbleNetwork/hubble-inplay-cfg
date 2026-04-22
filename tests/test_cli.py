@@ -12,7 +12,7 @@ VALID_KEY_HEX = bytes(range(16)).hex()  # "000102030405060708090a0b0c0d0e0f"
 def _args(**overrides):
     base = {
         "--key": VALID_KEY_B64,
-        "--rot-exp": "10",
+        "--period-exponent": "10",
     }
     base.update(overrides)
     out = []
@@ -44,26 +44,26 @@ def test_output_flag_matches_stdout(tmp_path, capsys):
     assert file_contents.rstrip("\n") == stdout_capture.rstrip("\n")
 
 
-def test_rot_exp_below_absolute_min_errors(capsys):
+def test_period_exponent_below_absolute_min_errors(capsys):
     with pytest.raises(SystemExit) as exc:
-        main(_args(**{"--rot-exp": "0"}))
+        main(_args(**{"--period-exponent": "0"}))
     assert exc.value.code == 2
-    assert "rot-exp" in capsys.readouterr().err
+    assert "period-exponent" in capsys.readouterr().err
 
 
-def test_rot_exp_above_absolute_max_errors(capsys):
+def test_period_exponent_above_absolute_max_errors(capsys):
     with pytest.raises(SystemExit) as exc:
-        main(_args(**{"--rot-exp": "16"}))
+        main(_args(**{"--period-exponent": "16"}))
     assert exc.value.code == 2
 
 
-def test_rot_exp_preferred_range_no_warning(capsys):
-    assert main(_args(**{"--rot-exp": "12"})) == 0
+def test_period_exponent_preferred_range_no_warning(capsys):
+    assert main(_args(**{"--period-exponent": "12"})) == 0
     assert "warning" not in capsys.readouterr().err
 
 
-def test_rot_exp_below_preferred_warns_but_succeeds(capsys):
-    assert main(_args(**{"--rot-exp": "7"})) == 0
+def test_period_exponent_below_preferred_warns_but_succeeds(capsys):
+    assert main(_args(**{"--period-exponent": "7"})) == 0
     err = capsys.readouterr().err
     assert "warning" in err
     assert "local testing only" in err

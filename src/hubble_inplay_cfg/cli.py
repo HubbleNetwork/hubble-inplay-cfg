@@ -32,11 +32,11 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--rot-exp",
+        "--period-exponent",
         type=int,
         default=ROT_EXP_PREFERRED_MAX,
         help=(
-            f"EID rotation period exponent (2^rot_exp seconds). "
+            f"EID rotation period exponent (2^period_exponent seconds). "
             f"Accepted: {ROT_EXP_ABSOLUTE_MIN}-{ROT_EXP_ABSOLUTE_MAX}; "
             f"preferred: {ROT_EXP_PREFERRED_MIN}-{ROT_EXP_PREFERRED_MAX}. "
             f"Default: {ROT_EXP_PREFERRED_MAX}."
@@ -75,14 +75,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    if not (ROT_EXP_ABSOLUTE_MIN <= args.rot_exp <= ROT_EXP_ABSOLUTE_MAX):
+    if not (ROT_EXP_ABSOLUTE_MIN <= args.period_exponent <= ROT_EXP_ABSOLUTE_MAX):
         parser.error(
-            f"--rot-exp must be between {ROT_EXP_ABSOLUTE_MIN} and "
-            f"{ROT_EXP_ABSOLUTE_MAX} (got {args.rot_exp})"
+            f"--period-exponent must be between {ROT_EXP_ABSOLUTE_MIN} and "
+            f"{ROT_EXP_ABSOLUTE_MAX} (got {args.period_exponent})"
         )
-    if not (ROT_EXP_PREFERRED_MIN <= args.rot_exp <= ROT_EXP_PREFERRED_MAX):
+    if not (ROT_EXP_PREFERRED_MIN <= args.period_exponent <= ROT_EXP_PREFERRED_MAX):
         print(
-            f"warning: --rot-exp {args.rot_exp} is outside the range "
+            f"warning: --period-exponent {args.period_exponent} is outside the range "
             f"{ROT_EXP_PREFERRED_MIN}-{ROT_EXP_PREFERRED_MAX}. "
             "This should be used for local testing only. "
             "This will not be compatible with the Hubble backend services.",
@@ -104,7 +104,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         cfg = build_config(
             interval_ms=interval_ms,
             key0=args.key,
-            rot_exp=args.rot_exp,
+            rot_exp=args.period_exponent,
             payload_hex=args.payload,
             tx_power=args.tx_power,
         )

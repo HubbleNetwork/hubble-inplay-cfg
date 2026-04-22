@@ -6,7 +6,7 @@
 pip install -e ".[dev]"    # editable + dev extras (pytest, ruff); runtime itself is stdlib-only
 pytest                     # run all tests
 ruff check .               # lint (CI gate on PRs and pushes to main)
-hubble-inplay-cfg [--key <hex-or-b64>] [--rot-exp <n>] [--interval <seconds>] [--payload <hex>] [-o <path>]
+hubble-inplay-cfg [--key <hex-or-b64>] [--period-exponent <n>] [--interval <seconds>] [--payload <hex>] [-o <path>]
 PYTHONPATH=src python -m hubble_inplay_cfg ...   # run without installing
 ```
 
