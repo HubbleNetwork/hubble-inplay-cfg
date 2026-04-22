@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "hubble-inplay-cfg": {
+      "command": "hubble-inplay-cfg-mcp"
+    }
+  }
+}

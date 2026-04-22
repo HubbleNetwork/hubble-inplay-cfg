@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+!src/hubble_inplay_cfg/beacon/*.pyc
 *.egg-info/
 dist/
 build/
