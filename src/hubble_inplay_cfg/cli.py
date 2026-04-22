@@ -10,6 +10,7 @@ import sys
 from collections.abc import Sequence
 from typing import Any
 
+from hubble_inplay_cfg._bridge_client import BridgeError, bridge_call
 from hubble_inplay_cfg.builder import build_config
 from hubble_inplay_cfg.chip import CHIP_NAMES, Chip
 
@@ -41,114 +42,9 @@ def _setup_logging(debug: bool, log_file: str | None) -> logging.Logger:
 # Shared helpers
 # ──────────────────────────────────────────────────────────────
 
-def _beacon_sys_path() -> None:
-    """Ensure beacon/ is on sys.path so 'import beacon.*' works."""
-    pkg_dir = os.path.dirname(os.path.abspath(__file__))
-    if pkg_dir not in sys.path:
-        sys.path.insert(0, pkg_dir)
-
-
 def _load_config(path: str) -> dict[str, Any]:
     with open(path) as f:
         return json.load(f)
-
-
-def _apply_bdaddr(config: dict[str, Any], bdaddr: str) -> None:
-    config["advSet"][0]["bdAddr"] = bdaddr.lower().replace(":", "")
-
-
-def _connect_chip(port: str, autorate: bool, logger: logging.Logger) -> Chip:
-    logger.info(f"Opening {port} ...")
-    chip = Chip(port)
-    if autorate:
-        logger.info("Negotiating baud rate ...")
-        ret, baud = chip.connect()
-        if ret != 0:
-            chip.close()
-            logger.error(f"Baud rate negotiation failed (error {ret})")
-            sys.exit(1)
-        logger.info(f"  Baud rate: {baud}")
-    return chip
-
-
-def _run_program_flow(
-    chip: Chip,
-    config: dict[str, Any],
-    ram_mode: bool,
-    logger: logging.Logger,
-) -> None:
-    """Execute the full programming flow: calibration → encode → burn."""
-    _beacon_sys_path()
-    import beacon.beacon as bmod  # type: ignore[import]
-    import beacon.beacon_efuse_format as ef  # type: ignore[import]
-
-    from hubble_inplay_cfg.mis import (
-        rt_ble_static_address_post_process,
-        rt_ble_static_address_process,
-        rt_calibration_process,
-    )
-
-    _chip = chip._inner  # raw _BeaconChip for beacon package calls
-
-    logger.info("Reading chip info ...")
-    ret, efuse11_value = _chip.read_efuse(17)
-    if ret != 0:
-        logger.error(f"read_efuse(17) failed (error {ret})")
-        sys.exit(1)
-
-    ret, chip_type = _chip.get_chip_type()
-    if ret != 0:
-        logger.error(f"get_chip_type() failed (error {ret})")
-        sys.exit(1)
-    logger.info(f"  Chip type: {CHIP_NAMES.get(chip_type, chip_type)}")
-
-    logger.debug("Loading beacon config ...")
-    b = bmod.Beacon()
-    b.load_config(config)
-
-    logger.info("Running runtime processes ...")
-    b.rt_uart_pin_as_gpio_proc(efuse11_value, chip_type)
-
-    ret, msg = rt_calibration_process(_chip, b)
-    if ret != 0:
-        logger.error(f"Calibration failed: {msg}")
-        sys.exit(1)
-
-    ret, msg = rt_ble_static_address_process(_chip, b)
-    if ret != 0:
-        logger.error(f"Static address process failed: {msg}")
-        sys.exit(1)
-
-    _, h_flag = _chip.is_full_range_industrial()
-    logger.debug(f"  Full-range industrial: {bool(h_flag)}")
-
-    logger.info("Converting config to packet ...")
-    packet = b.convert_to_packet(h_flag, is_run_in_ram=ram_mode)
-    rt_ble_static_address_post_process(b)
-
-    word_array = [0] * 384
-    word_cnt = ef.packet_to_raw(str(packet), word_array)
-    logger.info(f"  Word count: {word_cnt}/256")
-    if word_cnt > 256:
-        logger.error(f"eFuse overflow: {word_cnt} words (max 256)")
-        sys.exit(1)
-
-    chip.set_word_array(word_array)
-
-    if ram_mode:
-        logger.info("Running in RAM (test mode) ...")
-        ret = _chip.run_in_ram()
-        if ret != 0:
-            logger.error(f"RAM test failed (error {ret})")
-            sys.exit(1)
-        logger.info("RAM test complete.")
-    else:
-        logger.info("Burning eFuse ...")
-        ret = _chip.burn_efuse(reset_en=True, clear_uart_cache=False)
-        if ret != 0:
-            logger.error(f"eFuse burn failed (error {ret})")
-            sys.exit(1)
-        logger.info("eFuse burn complete.")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -173,17 +69,15 @@ def cmd_generate(args: argparse.Namespace, logger: logging.Logger) -> None:
 
 
 def cmd_validate(args: argparse.Namespace, logger: logging.Logger) -> None:
-    _beacon_sys_path()
-    import beacon.beacon as bmod  # type: ignore[import]
-    import beacon.beacon_efuse_format as ef  # type: ignore[import]
-
     config = _load_config(args.config)
-    b = bmod.Beacon()
-    b.load_config(config)
-    packet = b.convert_to_packet(False, is_run_in_ram=False)
-    word_array = [0] * 384
-    word_cnt = ef.packet_to_raw(str(packet), word_array)
+    try:
+        result = bridge_call({"cmd": "validate", "config": config}, logger=logger)
+    except BridgeError as exc:
+        logger.error(str(exc))
+        sys.exit(1)
 
+    word_cnt = result["word_count"]
+    word_array = result["word_array"]
     status = "OK" if word_cnt <= 256 else "OVERFLOW"
     non_zero = [(i, word_array[i]) for i in range(256) if word_array[i] != 0]
     logger.info(f"Config:      {args.config}")
@@ -226,39 +120,53 @@ def cmd_program(args: argparse.Namespace, logger: logging.Logger) -> None:
             tx_power=args.tx_power,
         )
 
-    if args.bdaddr:
-        _apply_bdaddr(config, args.bdaddr)
-        logger.debug(f"BT address overridden to {args.bdaddr}")
-
-    with _connect_chip(args.port, not args.no_autorate, logger) as chip:
-        _run_program_flow(chip, config, args.ram, logger)
-
-        if not args.ram and args.trigger:
-            logger.debug("Sending post-burn trigger signal ...")
-            chip.send_trigger()
+    try:
+        result = bridge_call(
+            {
+                "cmd": "program",
+                "port": args.port,
+                "config": config,
+                "ram_mode": args.ram,
+                "no_autorate": args.no_autorate,
+                "trigger": args.trigger and not args.ram,
+                "bdaddr": args.bdaddr,
+            },
+            logger=logger,
+        )
+    except BridgeError as exc:
+        logger.error(str(exc))
+        sys.exit(1)
+    logger.info(f"Chip type: {CHIP_NAMES.get(result['chip_type'], result['chip_type'])}")
+    logger.info(f"Word count: {result['word_count']}/256")
+    if args.ram:
+        logger.info("RAM test complete.")
+    else:
+        logger.info("eFuse burn complete.")
 
 
 def cmd_connect(args: argparse.Namespace, logger: logging.Logger) -> None:
-    with _connect_chip(args.port, True, logger) as chip:
-        ret, chip_type = chip.get_chip_type()
-        if ret != 0:
-            logger.error(f"get_chip_type() failed (error {ret})")
-            sys.exit(1)
-        logger.info(f"  Chip type: {CHIP_NAMES.get(chip_type, chip_type)}")
-
-        _, h_flag = chip.is_full_range_industrial()
-        logger.info(f"  Full-range industrial: {bool(h_flag)}")
-        logger.info("Connection OK.")
+    logger.info(f"Opening {args.port} ...")
+    try:
+        result = bridge_call({"cmd": "connect", "port": args.port}, logger=logger)
+    except BridgeError as exc:
+        logger.error(str(exc))
+        sys.exit(1)
+    logger.info(f"  Baud rate: {result['baud']}")
+    logger.info(f"  Chip type: {CHIP_NAMES.get(result['chip_type'], result['chip_type'])}")
+    logger.info(f"  Full-range industrial: {result['h_flag']}")
+    logger.info("Connection OK.")
 
 
 def cmd_read_efuse(args: argparse.Namespace, logger: logging.Logger) -> None:
     addr = int(args.address, 0)
-    with _connect_chip(args.port, True, logger) as chip:
-        ret, value = chip.read_efuse(addr)
-        if ret != 0:
-            logger.error(f"read_efuse(0x{addr:02x}) failed (error {ret})")
-            sys.exit(1)
-        print(f"eFuse[0x{addr:02x}] = 0x{value:04x} ({value})")
+    try:
+        result = bridge_call(
+            {"cmd": "read_efuse", "port": args.port, "addr": addr}, logger=logger
+        )
+    except BridgeError as exc:
+        logger.error(str(exc))
+        sys.exit(1)
+    print(f"eFuse[0x{addr:02x}] = 0x{result['value']:04x} ({result['value']})")
 
 
 def cmd_dtm_start(args: argparse.Namespace, logger: logging.Logger) -> None:
