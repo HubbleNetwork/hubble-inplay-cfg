@@ -105,6 +105,7 @@ def build_config(
     key0: str,
     rot_exp: int,
     payload_hex: str = "FF",
+    tx_power: int = 4,
 ) -> dict[str, Any]:
     """Produce a fully-populated IN100 config dict ready to serialize as JSON."""
     key0_hex = decode_key(key0)
@@ -119,6 +120,7 @@ def build_config(
     adv["payload"][0]["data"] = data_string
     adv["payload"][0]["len"] = payload_len
     cfg["txSetting"]["key0"] = key0_hex
+    cfg["txSetting"]["txPower"] = tx_power
     _update_timer_register(cfg["regSettingCust"], adv_count)
 
     return cfg
