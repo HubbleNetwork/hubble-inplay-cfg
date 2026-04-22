@@ -1,30 +1,10 @@
-"""Tests for hubble_inplay_cfg.chip — uses mock serial to avoid hardware."""
+"""Tests for hubble_inplay_cfg.chip — mocks bridge_call, no hardware required."""
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from hubble_inplay_cfg.chip import CHIP_NAMES, Chip
-
-
-@pytest.fixture()
-def mock_chip():
-    """Return a Chip instance with fully mocked internals (no real serial port)."""
-    with patch("hubble_inplay_cfg.chip.serial.Serial") as mock_serial_cls, patch(
-        "hubble_inplay_cfg.chip._BeaconChip"
-    ) as mock_beacon_cls:
-        mock_serial = MagicMock()
-        mock_serial_cls.return_value = mock_serial
-        mock_inner = MagicMock()
-        mock_beacon_cls.return_value = mock_inner
-
-        chip = Chip("/dev/ttyUSB0")
-        chip._serial = mock_serial
-        chip._inner = mock_inner
-        yield chip, mock_serial, mock_inner
-
 
 # --- CHIP_NAMES ---
 
@@ -35,140 +15,78 @@ def test_chip_names_coverage():
     assert CHIP_NAMES[255] == "UNKNOWN"
 
 
-# --- connect ---
+# --- dtm_start ---
 
 
-def test_connect_delegates(mock_chip):
-    chip, _, inner = mock_chip
-    inner.uart_rate_adaptive.return_value = (0, 115200)
-    assert chip.connect() == (0, 115200)
-    inner.uart_rate_adaptive.assert_called_once()
-
-
-# --- read_efuse ---
-
-
-def test_read_efuse_delegates(mock_chip):
-    chip, _, inner = mock_chip
-    inner.read_efuse.return_value = (0, 0xAB)
-    ret, val = chip.read_efuse(5)
+def test_dtm_start_success():
+    with patch("hubble_inplay_cfg.chip.bridge_call") as mock_call:
+        mock_call.return_value = {"ok": True, "ret": 0, "msg": "ok"}
+        chip = Chip("/dev/ttyUSB0")
+        ret, msg = chip.dtm_start([0, 0, 37, 0, 0, 0])
     assert ret == 0
-    assert val == 0xAB
-    inner.read_efuse.assert_called_once_with(5)
+    assert msg == "ok"
+    mock_call.assert_called_once_with(
+        {"cmd": "dtm_start", "port": "/dev/ttyUSB0", "params": [0, 0, 37, 0, 0, 0]}
+    )
 
 
-def test_read_efuse_error_propagated(mock_chip):
-    chip, _, inner = mock_chip
-    inner.read_efuse.return_value = (1, 0)
-    ret, _ = chip.read_efuse(99)
+def test_dtm_start_error_propagated():
+    with patch("hubble_inplay_cfg.chip.bridge_call") as mock_call:
+        mock_call.return_value = {"ok": False, "ret": 1, "msg": "fail"}
+        chip = Chip("/dev/ttyUSB0")
+        ret, msg = chip.dtm_start([0, 0, 37, 0, 0, 0])
     assert ret == 1
+    assert msg == "fail"
 
 
-# --- get_chip_type ---
+# --- dtm_stop ---
 
 
-def test_get_chip_type_delegates(mock_chip):
-    chip, _, inner = mock_chip
-    inner.get_chip_type.return_value = (0, 0)
-    ret, chip_type = chip.get_chip_type()
+def test_dtm_stop_success():
+    with patch("hubble_inplay_cfg.chip.bridge_call") as mock_call:
+        mock_call.return_value = {"ok": True, "ret": 0, "msg": "stopped"}
+        chip = Chip("/dev/ttyUSB0")
+        ret, msg = chip.dtm_stop()
     assert ret == 0
-    assert CHIP_NAMES[chip_type] == "QFN18"
+    assert msg == "stopped"
+    mock_call.assert_called_once_with({"cmd": "dtm_stop", "port": "/dev/ttyUSB0"})
 
 
-# --- set_word_array / run_in_ram / burn_efuse ---
+# --- carrier_start ---
 
 
-def test_set_word_array(mock_chip):
-    chip, _, inner = mock_chip
-    chip.set_word_array([1, 2, 3])
-    assert inner.wordArray == [1, 2, 3]
-
-
-def test_run_in_ram_delegates(mock_chip):
-    chip, _, inner = mock_chip
-    inner.run_in_ram.return_value = 0
-    assert chip.run_in_ram() == 0
-
-
-def test_burn_efuse_default_args(mock_chip):
-    chip, _, inner = mock_chip
-    inner.burn_efuse.return_value = 0
-    chip.burn_efuse()
-    inner.burn_efuse.assert_called_once_with(reset_en=True, clear_uart_cache=False)
-
-
-def test_burn_efuse_no_reset(mock_chip):
-    chip, _, inner = mock_chip
-    inner.burn_efuse.return_value = 0
-    chip.burn_efuse(reset=False)
-    inner.burn_efuse.assert_called_once_with(reset_en=False, clear_uart_cache=False)
-
-
-# --- DTM ---
-
-
-def test_dtm_start_delegates(mock_chip):
-    chip, _, inner = mock_chip
-    inner.dtm_start.return_value = (0, "ok")
-    ret, msg = chip.dtm_start([0, 0, 37, 0, 0, 0])
+def test_carrier_start_success():
+    with patch("hubble_inplay_cfg.chip.bridge_call") as mock_call:
+        mock_call.return_value = {"ok": True, "ret": 0, "msg": "ok"}
+        chip = Chip("/dev/ttyUSB0")
+        ret, msg = chip.carrier_start(37, 7, 4)
     assert ret == 0
-    inner.dtm_start.assert_called_once_with([0, 0, 37, 0, 0, 0], False)
+    mock_call.assert_called_once_with(
+        {"cmd": "carrier_start", "port": "/dev/ttyUSB0", "ch": 37, "cap": 7, "tx_power": 4}
+    )
 
 
-def test_dtm_stop_delegates(mock_chip):
-    chip, _, inner = mock_chip
-    inner.dtm_stop.return_value = (0, "ok")
-    ret, _ = chip.dtm_stop()
+# --- carrier_stop ---
+
+
+def test_carrier_stop_success():
+    with patch("hubble_inplay_cfg.chip.bridge_call") as mock_call:
+        mock_call.return_value = {"ok": True, "ret": 0, "msg": "ok"}
+        chip = Chip("/dev/ttyUSB0")
+        ret, msg = chip.carrier_stop()
     assert ret == 0
-
-
-# --- Carrier ---
-
-
-def test_carrier_start_delegates(mock_chip):
-    chip, _, inner = mock_chip
-    inner.carrier_test_start.return_value = (0, "ok")
-    ret, _ = chip.carrier_start(37, 7, 4)
-    inner.carrier_test_start.assert_called_once_with(37, 7, 4)
-
-
-def test_carrier_stop_delegates(mock_chip):
-    chip, _, inner = mock_chip
-    inner.carrier_test_stop.return_value = (0, "ok")
-    ret, _ = chip.carrier_stop()
-    assert ret == 0
-
-
-# --- send_trigger ---
-
-
-def test_send_trigger_writes_bytes(mock_chip):
-    chip, serial, _ = mock_chip
-    chip.send_trigger()
-    serial.write.assert_called_once_with(bytes([0x00, 0xFF]))
-    serial.flush.assert_called_once()
+    mock_call.assert_called_once_with({"cmd": "carrier_stop", "port": "/dev/ttyUSB0"})
 
 
 # --- close / context manager ---
 
 
-def test_close_when_open(mock_chip):
-    chip, serial, _ = mock_chip
-    serial.is_open = True
-    chip.close()
-    serial.close.assert_called_once()
+def test_close_is_noop():
+    chip = Chip("/dev/ttyUSB0")
+    chip.close()  # must not raise
 
 
-def test_close_when_already_closed(mock_chip):
-    chip, serial, _ = mock_chip
-    serial.is_open = False
-    chip.close()
-    serial.close.assert_not_called()
-
-
-def test_context_manager_closes(mock_chip):
-    chip, serial, _ = mock_chip
-    serial.is_open = True
-    with chip:
-        pass
-    serial.close.assert_called_once()
+def test_context_manager_enters_and_exits():
+    chip = Chip("/dev/ttyUSB0")
+    with chip as c:
+        assert c is chip
