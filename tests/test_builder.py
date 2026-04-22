@@ -167,3 +167,24 @@ def test_build_config_preserves_bd_addr():
         payload_hex="FF",
     )
     assert cfg["advSet"][0]["bdAddr"] == "b8aa00000001"
+
+
+def test_build_config_tx_power_defaults_to_4():
+    cfg = build_config(
+        interval_ms=2000,
+        key0=VALID_KEY_B64,
+        rot_exp=10,
+        payload_hex="FF",
+    )
+    assert cfg["txSetting"]["txPower"] == 4
+
+
+def test_build_config_tx_power_override():
+    cfg = build_config(
+        interval_ms=2000,
+        key0=VALID_KEY_B64,
+        rot_exp=10,
+        payload_hex="FF",
+        tx_power=-2,
+    )
+    assert cfg["txSetting"]["txPower"] == -2

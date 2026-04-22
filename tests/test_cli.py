@@ -107,3 +107,30 @@ def test_bad_hex_key_errors(capsys):
     with pytest.raises(SystemExit) as exc:
         main(_args(**{"--key": bad}))
     assert exc.value.code == 2
+
+
+def test_tx_power_default_is_4(capsys):
+    assert main(_args()) == 0
+    cfg = json.loads(capsys.readouterr().out)
+    assert cfg["txSetting"]["txPower"] == 4
+
+
+def test_tx_power_flag_sets_value(capsys):
+    assert main(_args(**{"--tx-power": "-3"})) == 0
+    cfg = json.loads(capsys.readouterr().out)
+    assert cfg["txSetting"]["txPower"] == -3
+
+
+@pytest.mark.parametrize("value", ["-5", "5"])
+def test_tx_power_out_of_range_errors(capsys, value):
+    with pytest.raises(SystemExit) as exc:
+        main(_args(**{"--tx-power": value}))
+    assert exc.value.code == 2
+    assert "tx-power" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("value", ["-4", "4", "0"])
+def test_tx_power_boundary_values_accepted(capsys, value):
+    assert main(_args(**{"--tx-power": value})) == 0
+    cfg = json.loads(capsys.readouterr().out)
+    assert cfg["txSetting"]["txPower"] == int(value)

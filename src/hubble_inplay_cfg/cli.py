@@ -12,6 +12,10 @@ ROT_EXP_PREFERRED_MAX = 15
 ROT_EXP_ABSOLUTE_MIN = 1
 ROT_EXP_ABSOLUTE_MAX = 15
 
+TX_POWER_MIN = -4
+TX_POWER_MAX = 4
+TX_POWER_DEFAULT = 4
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -50,6 +54,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Raw hex payload bytes (>=1 byte, even number of hex chars). Default: FF.",
     )
     parser.add_argument(
+        "--tx-power",
+        type=int,
+        default=TX_POWER_DEFAULT,
+        help=(
+            f"Transmit power in dBm (txSetting.txPower). "
+            f"Accepted: {TX_POWER_MIN} to {TX_POWER_MAX}. "
+            f"Default: {TX_POWER_DEFAULT}."
+        ),
+    )
+    parser.add_argument(
         "-o",
         "--output",
         help="Write config to this path instead of stdout.",
@@ -78,6 +92,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.interval <= 0:
         parser.error(f"--interval must be positive (got {args.interval})")
 
+    if not (TX_POWER_MIN <= args.tx_power <= TX_POWER_MAX):
+        parser.error(
+            f"--tx-power must be between {TX_POWER_MIN} and "
+            f"{TX_POWER_MAX} dBm (got {args.tx_power})"
+        )
+
     interval_ms = args.interval * 1000
 
     try:
@@ -86,6 +106,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             key0=args.key,
             rot_exp=args.rot_exp,
             payload_hex=args.payload,
+            tx_power=args.tx_power,
         )
     except ValueError as exc:
         parser.error(str(exc))
