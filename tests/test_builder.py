@@ -188,3 +188,4 @@ def test_build_config_tx_power_override():
         tx_power=-2,
     )
     assert cfg["txSetting"]["txPower"] == -2
+

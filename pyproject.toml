@@ -5,17 +5,26 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hubble-inplay-cfg"
 version = "0.1.0"
-description = "Generate IN100 NanoBeacon .cfg files for Hubble advertising packets."
+description = "Generate IN100 NanoBeacon .cfg files, program chips over UART, and run RF tests."
 requires-python = ">=3.10"
+dependencies = [
+    "pyserial>=3.5",
+    "pycryptodomex>=3.0",
+]
+
+[project.scripts]
+hubble-inplay-cfg     = "hubble_inplay_cfg.cli:main"
+hubble-inplay-cfg-mcp = "hubble_inplay_cfg.mcp_server:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
-
-[project.scripts]
-hubble-inplay-cfg = "hubble_inplay_cfg.cli:main"
+mcp = ["mcp>=1.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+hubble_inplay_cfg = ["beacon/*.pyc"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

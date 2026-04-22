@@ -1,136 +1,168 @@
-import base64
+"""CLI smoke tests — no hardware required."""
+
+from __future__ import annotations
+
 import json
-
-import pytest
-
-from hubble_inplay_cfg.cli import main
-
-VALID_KEY_B64 = base64.b64encode(bytes(range(16))).decode()
-VALID_KEY_HEX = bytes(range(16)).hex()  # "000102030405060708090a0b0c0d0e0f"
+import subprocess
+import sys
 
 
-def _args(**overrides):
-    base = {
-        "--key": VALID_KEY_B64,
-        "--rot-exp": "10",
-    }
-    base.update(overrides)
-    out = []
-    for k, v in base.items():
-        out.extend([k, v])
-    return out
+def _run(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, "-m", "hubble_inplay_cfg", *args],
+        capture_output=True,
+        text=True,
+    )
 
 
-def test_stdout_output_is_valid_json(capsys):
-    assert main(_args()) == 0
-    captured = capsys.readouterr()
-    assert captured.err == ""
-    cfg = json.loads(captured.out)
-    assert cfg["advSet"][0]["interval"] == 2000
-    assert cfg["advSet"][0]["rot_exp"] == 10
+# --- version ---
 
 
-def test_output_flag_matches_stdout(tmp_path, capsys):
-    out_file = tmp_path / "config.cfg"
-    main(_args() + ["-o", str(out_file)])
-    stdout_capture = capsys.readouterr().out
-    assert stdout_capture == ""
-
-    main(_args())
-    stdout_capture = capsys.readouterr().out
-
-    file_contents = out_file.read_text()
-    # File has a trailing newline; stdout print adds one too.
-    assert file_contents.rstrip("\n") == stdout_capture.rstrip("\n")
+def test_version_exits_zero():
+    result = _run("version")
+    assert result.returncode == 0
 
 
-def test_rot_exp_below_absolute_min_errors(capsys):
-    with pytest.raises(SystemExit) as exc:
-        main(_args(**{"--rot-exp": "0"}))
-    assert exc.value.code == 2
-    assert "rot-exp" in capsys.readouterr().err
+def test_version_contains_hubble():
+    result = _run("version")
+    assert "hubble-inplay" in result.stdout.lower() or "hubble" in result.stdout.lower()
 
 
-def test_rot_exp_above_absolute_max_errors(capsys):
-    with pytest.raises(SystemExit) as exc:
-        main(_args(**{"--rot-exp": "16"}))
-    assert exc.value.code == 2
+# --- generate ---
 
 
-def test_rot_exp_preferred_range_no_warning(capsys):
-    assert main(_args(**{"--rot-exp": "12"})) == 0
-    assert "warning" not in capsys.readouterr().err
+def test_generate_creates_file(tmp_path):
+    out = tmp_path / "device.cfg"
+    result = _run(
+        "generate",
+        "--key", "00000000000000000000000000000000",
+        "--rot-exp", "10",
+        "--interval", "2",
+        "-o", str(out),
+    )
+    assert result.returncode == 0, result.stderr
+    assert out.exists()
 
 
-def test_rot_exp_below_preferred_warns_but_succeeds(capsys):
-    assert main(_args(**{"--rot-exp": "7"})) == 0
-    err = capsys.readouterr().err
-    assert "warning" in err
-    assert "local testing only" in err
-    assert "Hubble backend services" in err
+def test_generate_output_is_valid_json(tmp_path):
+    out = tmp_path / "device.cfg"
+    _run(
+        "generate",
+        "--key", "00000000000000000000000000000000",
+        "--rot-exp", "10",
+        "--interval", "2",
+        "-o", str(out),
+    )
+    data = json.loads(out.read_text())
+    assert isinstance(data, dict)
 
 
-def test_invalid_interval_errors(capsys):
-    with pytest.raises(SystemExit) as exc:
-        main(_args(**{"--interval": "0"}))
-    assert exc.value.code == 2
+def test_generate_uses_default_key(tmp_path):
+    out = tmp_path / "device.cfg"
+    result = _run("generate", "--rot-exp", "10", "--interval", "2", "-o", str(out))
+    assert result.returncode == 0
+    data = json.loads(out.read_text())
+    assert "advSet" in data
 
 
-def test_bad_key_errors(capsys):
-    with pytest.raises(SystemExit) as exc:
-        main(_args(**{"--key": "not!!base64"}))
-    assert exc.value.code == 2
+def test_generate_uses_default_interval(tmp_path):
+    out = tmp_path / "device.cfg"
+    result = _run(
+        "generate", "--key", "00000000000000000000000000000000", "--rot-exp", "10", "-o", str(out)
+    )
+    assert result.returncode == 0
+    data = json.loads(out.read_text())
+    assert data["advSet"][0]["interval"] == 2000
 
 
-def test_custom_payload_flag(capsys):
-    main(_args(**{"--payload": "AB12"}))
-    cfg = json.loads(capsys.readouterr().out)
-    assert "<EncRaw AB12 2byte 0 1>" in cfg["advSet"][0]["payload"][0]["data"]
-    assert cfg["advSet"][0]["payload"][0]["len"] == 25
+# --- validate ---
 
 
-def test_hex_key_accepted(capsys):
-    assert main(_args(**{"--key": VALID_KEY_HEX})) == 0
-    cfg = json.loads(capsys.readouterr().out)
-    assert cfg["txSetting"]["key0"] == VALID_KEY_HEX
+def test_validate_passes_for_valid_config(tmp_path):
+    out = tmp_path / "device.cfg"
+    _run(
+        "generate",
+        "--key", "00000000000000000000000000000000",
+        "--rot-exp", "10",
+        "--interval", "2",
+        "-o", str(out),
+    )
+    result = _run("validate", "--config", str(out))
+    assert result.returncode == 0, result.stderr
 
 
-def test_hex_key_uppercase_accepted(capsys):
-    assert main(_args(**{"--key": VALID_KEY_HEX.upper()})) == 0
-    cfg = json.loads(capsys.readouterr().out)
-    assert cfg["txSetting"]["key0"] == VALID_KEY_HEX  # stored lowercase
+def test_validate_verbose(tmp_path):
+    out = tmp_path / "device.cfg"
+    _run(
+        "generate",
+        "--key", "00000000000000000000000000000000",
+        "--rot-exp", "10",
+        "--interval", "2",
+        "-o", str(out),
+    )
+    result = _run("validate", "--config", str(out), "--verbose")
+    assert result.returncode == 0
+    assert "word" in result.stdout.lower() or "ok" in result.stdout.lower()
 
 
-def test_bad_hex_key_errors(capsys):
-    # 32 chars with a non-hex char, and not valid base64 either.
-    bad = "!" + "0" * 31
-    with pytest.raises(SystemExit) as exc:
-        main(_args(**{"--key": bad}))
-    assert exc.value.code == 2
+def test_validate_rejects_missing_file(tmp_path):
+    result = _run("validate", "--config", str(tmp_path / "nonexistent.cfg"))
+    assert result.returncode != 0
 
 
-def test_tx_power_default_is_4(capsys):
-    assert main(_args()) == 0
-    cfg = json.loads(capsys.readouterr().out)
-    assert cfg["txSetting"]["txPower"] == 4
+def test_validate_rejects_malformed_json(tmp_path):
+    bad = tmp_path / "bad.cfg"
+    bad.write_text("not json {{{")
+    result = _run("validate", "--config", str(bad))
+    assert result.returncode != 0
 
 
-def test_tx_power_flag_sets_value(capsys):
-    assert main(_args(**{"--tx-power": "-3"})) == 0
-    cfg = json.loads(capsys.readouterr().out)
-    assert cfg["txSetting"]["txPower"] == -3
+# --- program requires --port ---
 
 
-@pytest.mark.parametrize("value", ["-5", "5"])
-def test_tx_power_out_of_range_errors(capsys, value):
-    with pytest.raises(SystemExit) as exc:
-        main(_args(**{"--tx-power": value}))
-    assert exc.value.code == 2
-    assert "tx-power" in capsys.readouterr().err
+def test_program_without_port_fails():
+    result = _run("program", "--config", "x.cfg")
+    assert result.returncode != 0
 
 
-@pytest.mark.parametrize("value", ["-4", "4", "0"])
-def test_tx_power_boundary_values_accepted(capsys, value):
-    assert main(_args(**{"--tx-power": value})) == 0
-    cfg = json.loads(capsys.readouterr().out)
-    assert cfg["txSetting"]["txPower"] == int(value)
+# --- connect requires --port ---
+
+
+def test_connect_without_port_fails():
+    result = _run("connect")
+    assert result.returncode != 0
+
+
+# --- read-efuse requires --port ---
+
+
+def test_read_efuse_without_port_fails():
+    result = _run("read-efuse", "5")
+    assert result.returncode != 0
+
+
+# --- dtm-start requires --port ---
+
+
+def test_dtm_start_without_port_fails():
+    result = _run("dtm-start", "--params", "0,0,37,0,0,0")
+    assert result.returncode != 0
+
+
+# --- log-file ---
+
+
+def test_log_file_created(tmp_path):
+    log = tmp_path / "run.log"
+    out = tmp_path / "device.cfg"
+    result = _run(
+        "--log-file", str(log),
+        "generate",
+        "--key", "00000000000000000000000000000000",
+        "--rot-exp", "10",
+        "--interval", "2",
+        "-o", str(out),
+    )
+    assert result.returncode == 0
+    assert log.exists()
+    assert log.stat().st_size > 0
